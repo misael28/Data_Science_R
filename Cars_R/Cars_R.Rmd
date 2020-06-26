@@ -1,0 +1,464 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+#**------------------------------Case_Study_Cars_Preference---------------------------------------------------------------------**
+
+#Car_Case_Study
+#This project requires you to understand what mode of transport employees prefers to 
+#commute to their office. 
+#The dataset "Cars-dataset" includes employee information about their mode of transport 
+#as well as their personal and professional
+#details like age, salary, work exp. We need to predict whether or not an employee 
+#will use Car as a mode of transport. 
+#Also, which variables are a significant predictor behind this decision.
+
+#Following is expected out of the candidate in this assessment.
+
+#EDA (15 Marks)
+
+#Perform an EDA on the data - (7 marks)
+#Illustrate the insights based on EDA (5 marks)
+#What is the most challenging aspect of this problem? 
+#What method will you use to deal with this? Comment (3 marks)
+#Data Preparation (10 marks)
+
+#Modeling (30 Marks)
+#Create multiple models and explore how each model perform using appropriate model performance metrics (15 marks)
+#KNN 
+#Naive Bayes (is it applicable here? comment and if it is not applicable, how can you build an NB model in this case?)
+#Logistic Regression
+#Apply both bagging and boosting modeling procedures to create 2 models and compare its accuracy with the 
+#best model of the above step. (15 marks)
+#Actionable Insights & Recommendations (5 Marks)
+
+#Summarize your findings from the exercise in a concise yet actionable note
+#Library usage:
+library(lattice)
+library(readxl)
+library(rpart)
+library(caret)
+library(e1071)
+library(dplyr)
+library(DMwR)
+library(ggplot2)
+library(corrplot)
+library(caTools)
+library(class)
+library(usdm)
+library(naivebayes)
+library(gbm)
+library(ggplot2)
+library(rlang)
+library(caret)
+library(gbm)
+
+#This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+#Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+car_data <-read.csv("Cars-dataset.csv", header = TRUE) 
+```
+
+```{r}
+str(car_data)
+View(car_data)
+summary(car_data)
+#devtools::install_github('r-lib/later#96')
+#pkgbuild::with_build_tools(install.packages("r-lib", repos = NULL, type = "source"))
+# We notice that MBA has 1 NA value, just to be sure:
+sum(is.na(car_data))
+
+# Lets remove it right away:
+car_data<-na.omit(car_data)
+car_data<-knnImputation(car_data)
+
+# Lets check some % in relation to transport choices 
+
+#Public transport %
+#300/418
+
+Pubt = ifelse(car_data$Transport=="Public Transport",1,0)
+a=(sum(Pubt))/length((car_data$Transport))
+print("Percentage of Public Transport")
+print(a*100)
+
+
+#2wheeler
+#83/418
+wh2 = ifelse(car_data$Transport=="2Wheeler",1,0)
+a=(sum(wh2))/length((car_data$Transport))
+print("Percentage of 2wheeler")
+print(a*100)
+
+#Car
+#35/418
+car = ifelse(car_data$Transport=="Car",1,0)
+a=(sum(car))/length((car_data$Transport))
+print("Percentage of Cars")
+print(a*100)
+
+# We notice a strong bias towards public transport, car is the less frequent choice with 0,083% a classic unbalanced 
+# data
+
+```
+
+```{r}
+# Checking variables we need to turn into factor the following variables listed below:
+
+#engineer
+car_data$Engineer <- as.factor(car_data$Engineer)
+
+#MBA
+car_data$MBA <- as.factor(car_data$MBA)
+
+#license - Drivers License is a pre requisite in order to drive a car
+car_data$license <- as.factor(car_data$license)
+
+# Turn into binary gender column
+car_data$Gender = factor(car_data$Gender,
+                         levels = c("Male", "Female"),
+                         labels = c(0,1))
+
+View(car_data)
+
+```
+
+
+# Now we have the car users percentage in this scenario
+
+```{r}
+#------------------------Univariate Analysis----------------------------------
+
+qplot(Age, data = car_data, 
+      main = "car_data and age",
+      xlab = "age",
+      ylab = "Quantity")
+
+#Age is right skewed tailing at the end. We notice there are, probably as most companies, more juniors than seniors
+
+qplot( Distance, data = car_data,
+      main = "car_data and distance from work",
+      xlab = "Distance",
+      ylab = "Km")
+
+#Left skewed Most people lives in the 8-14 (u.m.) away from work, would likely pay attention to car option correlation
+
+qplot(Work.Exp, data = car_data,
+      main = "working experience",
+      xlab = "years of experience",
+      ylab = "Quantity")
+
+#Left skewed, what confirms the junior hypothesis
+
+qplot(Salary, data = car_data,
+      main = "car_data - Salary",
+      xlab = "salary",
+      ylab = "quantity")
+
+# salary is unbalanced probably concentrated amongst the senior and persons with more years of experience
+
+```
+
+```{r}
+#------------------------------BiVariate Analysis------------------------------------
+
+par(mfrow= c(1,2))
+boxplot(car_data$Age~car_data$Engineer, vertical = TRUE, 
+        col = c("blue", "red"), main = "Age and Engineers",
+        ylab = "Age",
+        xlab = "Eng.")
+
+boxplot(car_data$Age~car_data$MBA, vertical = TRUE, 
+        col = c("yellow", "purple"), main = "Age and MBA",
+        ylab = "Age ",
+        xlab = "MBA")
+
+#As expected not much of difference here, people for all qualifications and all work exp would be employed in firm.
+
+boxplot(car_data$Salary~car_data$Engineer, vertical = TRUE,
+      col = c("green", "red"), main = "Salary - Eng.",
+      xlab = "Engineers",
+      ylab = "salary")
+
+boxplot(car_data$Salary~car_data$MBA, vertical = TRUE,
+        col = c("green", "purple"), main = "Salary - MBA.",
+        xlab = "MBA",
+        ylab = "salary")
+
+mean(car_data$Salary)
+
+#We do not see any appreciable difference in salary of Eng Vs Non-Eng or MBA vs Non-MBA's
+#Also, mean salary for both MBA's and Eng is around 16.
+
+boxplot(car_data$Work.Exp~car_data$Gender, vertical = TRUE,
+        col = c("grey","pink"),
+        main="Exp and Gender",
+        xlab = "Exp",
+        ylab = "Years of Experience")
+
+boxplot(car_data$Salary~car_data$Gender, vertical = TRUE,
+        col = c("grey","pink"),
+        main="Salary and Gender",
+        xlab = "Gender",
+        ylab = "salary")
+
+#Not much of difference between mean work experience in two genders.
+#However the highest salaries (ouliers) are clearly concentrated amongst male workers
+
+par(mfrow=c(1,1))
+
+boxplot(car_data$Salary~car_data$Transport, vertical = TRUE, main= "Salary vs Transport",
+        xlab = "Transport choice",
+        ylab = "Salary")
+
+# higher the salary, greater the probability of going by car 
+
+
+#Predilection for public transport and motorcycles by the younger workers
+#Age and Car must be related
+
+boxplot(car_data$Distance~car_data$Transport, vertical = TRUE, main= "Distance vs Transport",
+        xlab = "Transport choice",
+        ylab = "Distance")
+
+```
+
+
+```{r}
+# Public Transport is commonly chosen with lesser distances, by thr other hand, with greater distances, car is chosen
+table(car_data$Gender, car_data$Transport)
+
+# 0 as female 
+# 1 as male
+
+# We can see that around 25 % of females use private transport and 37% of males uses private transport a sensible difference here
+#Thus, even though percentage of car usage is high females also  shows high % on public transport.
+# females showed low interest in motorcycles
+
+#Correlation Plot:
+#collumn "Transport" Must be numeric,
+
+car_data$Transport = factor(car_data$Transport,
+                         levels = c("2Wheeler","Car", "Public Transport"),
+                         labels = c(0,1,0))
+
+levels(car_data$Transport)
+
+View(car_data)
+
+str(car_data)
+
+summary(car_data)
+
+#----------------------------------------------------
+# List numeric features in this dataset
+#nums = unlist(lapply(car_data, is.numeric))
+#nums = lapply(cleandata, is.numeric)
+#print(nums)
+
+# Age    	Gender  	Engineer       	MBA  
+#TRUE	    FALSE     FALSE     	   FALSE
+
+# We have to treat this variables into numeric in order to run the correlaction plot matrix
+
+#----------------------------------------------------
+
+car_data$Age<-as.numeric(car_data$Age)
+car_data$Gender<-as.numeric(car_data$Gender)
+car_data$Engineer<-as.numeric(car_data$Engineer)
+car_data$MBA<-as.numeric(car_data$MBA)
+car_data$license<-as.numeric(car_data$license)
+
+str(car_data)
+
+View(car_data)
+
+```
+
+
+```{r}
+#----------------------------------------------------
+#Correlation Plot
+
+corrplot(cor(car_data[-9]))
+
+#----------Multicollinearity-------------------------
+
+#We will treat outliers and We are using vifcor function to remove highly correlated variables from the dataset.
+
+plot(car_data)
+
+vifcor(car_data[-9])
+
+#Exclude Work_Exp column from the dataset for Multicollinearity treatment.
+
+car_data <- car_data[-5]
+
+View(car_data)
+
+corrplot(cor(car_data[-8]))
+
+#1. lets search for outliers:
+#We will be checking outliers in Age, Salary and Distance as the rest variables are Binary in nature.
+
+boxplot(car_data$Salary, car_data$Age, car_data$Distance, main = "Outliers")
+
+```
+
+```{r}
+#-------------Treating Outliers--------------------------
+
+# All three variables has outliers, lets work with some percentage (95%) of the dataset in order to exclude those outliers
+
+#Age
+quantile(car_data$Age, c(0.95))
+
+car_data$Age[which(car_data$Age>37)] <-37
+
+#Salary
+quantile(car_data$Salary, c(0.95))
+
+car_data$Salary[which(car_data$Salary>41.92)] <-41.92    
+
+#Distance
+quantile(car_data$Distance, c(0.95))
+
+car_data$Distance[which(car_data$Distance>17.92)]<-17.92
+
+#We will be generating Synthetic data using SMOTE.First we need change the target variable (Transport) into factor variable.
+
+car_data$Transport <- as.factor(car_data$Transport)
+
+View(car_data)                            
+
+str(car_data$Transport)
+
+
+```
+
+
+```{r}
+#----------------------SMOTE----------------------
+
+# car_data2 will be our balanced dataset
+
+set.seed(42)
+car_data_smote = SMOTE(Transport ~., car_data)
+summary(car_data_smote)
+
+# As we can see, now we more balance in the dataset increasing the object of prediction of 35 to 105 cars option
+
+```
+
+```{r}
+#---------------------Naive Bayes--------------------
+#Naive Bayes:
+#Naive Bayes classifier presumes that the presence of the feature in a class is unrelated to
+#the presence of any other feature in the same class, so let's build the model and see how
+#good our model is as per this classification model.
+set.seed(231)
+split = sample.split(car_data_smote$Transport, SplitRatio = 0.70)
+training_set = subset(car_data_smote, split == TRUE)
+test_set = subset(car_data_smote, split == FALSE)
+
+
+NBModel <- naive_bayes(Transport~., data = training_set)
+NB_Predict <- predict(NBModel, test_set)
+
+#table(NB_Predict, test_set$Transport)
+
+# Making the Confusion Matrix
+NB_car_cm <- table(NB_Predict,test_set[, 8])
+print(NB_car_cm)
+
+# calculating the accuracy - We are defining the accuracy function 
+#to show the NB performance output
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x))))*100}
+accuracy(NB_car_cm)
+
+```
+
+```{r}
+#From confusion matrix we can clearly see that test data has 94,52% accurate in
+#predicting.
+
+#----------------------------------------------------
+#Modelling - KNN - K Nearest Neighbours
+# Fitting K-NN to the Training set and Predicting the Test set results
+Knn_car_pred = knn(training_set[ , -8],
+               test=test_set[ , -8], cl=training_set[ , 8],
+               k=3)
+
+print(Knn_car_pred)
+
+# Making the Confusion Matrix
+Knn_car_cm <- table(Knn_car_pred,test_set[, 8])
+print(Knn_car_cm)
+
+# calculating the accuracy - We are defining the accuracy function to show the KNN performance output
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x))))*100}
+accuracy(Knn_car_cm)
+
+predicted.type <- NULL
+error.rate <- NULL
+for (i in 1:20) {
+  predicted.type <- knn(training_set[ , -9],test_set[ , -9], training_set$Transport,k=i)
+  error.rate[i] <- mean(predicted.type!=test_set$Transport)}
+
+knn.error <- as.data.frame(cbind(k=1:20,error.type =error.rate))
+
+```
+```{r}
+# Visualising the Training set results
+
+ggplot(knn.error,aes(k,error.type))+ 
+  geom_point()+ 
+  geom_line() + 
+  scale_x_continuous(breaks=1:20)+
+  theme_bw() +
+  xlab("Value of K") +
+  ylab('Error')
+
+#KNN proved to be a real good model for this dataset
+
+```
+
+
+```{r}
+#--------------------------------------------------
+#Baggin and BOOST!!!
+set.seed(231)
+split = sample.split(car_data$Transport, SplitRatio = 0.70)
+training_set = subset(car_data, split == TRUE)
+test_set = subset(car_data, split == FALSE)
+
+m_boost = gbm(Transport~., data= training_set, verbose=TRUE, distribution='gaussian',n.trees=5000,cv=10,interaction.depth=4,shrinkage = 0.01)
+m_boost_perf = gbm.perf(m_boost, method = "cv")
+
+BB_prob_pred = predict(m_boost,test_set, n.trees=m_boost_perf)
+BB_pred = ifelse(BB_prob_pred > 0.5, 1, 0)
+
+# Making the Confusion Matrix
+BB_car_cm <- table(BB_pred,test_set[, 8])
+print(BB_car_cm)
+# calculating the accuracy - We are defining the accuracy function to show the Boosting performance output
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x))))*100}
+accuracy(BB_car_cm)
+
+```
+
+
+
+
+
+
+```{r}
+
+```
+
+
+
+
